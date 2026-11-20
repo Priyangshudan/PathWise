@@ -1,6 +1,12 @@
 # Datasets
 Datasets/
-data/
+/data/
+
+# Project source and documentation are deliverables, not downloaded data.
+!cv/data/
+!cv/data/**
+!docs/
+!docs/**
 
 # Python
 __pycache__/

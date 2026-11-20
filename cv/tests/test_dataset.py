@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import pickle
 import sys
 import tempfile
 import unittest
@@ -112,6 +113,10 @@ class FootpathDamageDatasetTests(unittest.TestCase):
         image, mask = ds[0]
         self.assertEqual(tuple(image.shape), (3, 8, 12))
         self.assertEqual(tuple(mask.shape), (8, 12))
+        worker_copy = pickle.loads(pickle.dumps(ds))
+        worker_image, worker_mask = worker_copy[0]
+        self.assertEqual(tuple(worker_image.shape), (3, 8, 12))
+        self.assertEqual(tuple(worker_mask.shape), (8, 12))
 
     def test_experiment_manifest_filters_quarantined_rows_and_keeps_splits(self):
         manifest = self.root / "experiment_manifest.csv"
