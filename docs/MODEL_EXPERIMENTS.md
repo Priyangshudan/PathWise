@@ -111,7 +111,24 @@ We identify two complementary top checkpoints depending on whether a fixed `0.50
 
 ---
 
-## 6. Remaining Limitations
+## 6. Final Held-Out Test Split Evaluation (Milestone 2.6)
+
+Following completion of the Phase 1 experiments, the original baseline (`unet_baseline`) and the two top validation checkpoints (`exp2_train_improvements` and `exp3b_modest_weight`) were evaluated once on the held-out test split (**`82` included test samples** from `cv/data/experiment_manifest.csv`). Full outputs and visual comparisons are saved under `artifacts/final_evaluation/` (`FINAL_EVALUATION.md`, `checkpoint_comparison.json`, `checkpoint_comparison.csv`, `per_image_metrics.csv`, and `prediction_comparison.png`).
+
+| Checkpoint | Input Size | Threshold Mode | Threshold | Test Global/Micro Dice | Test Macro Dice | Test Global/Micro IoU | Test Macro IoU | Test Precision | Test Recall | Test F1 |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| **`unet_baseline`** | `128×128` | Fixed `0.50` | `0.50` | `0.4637` | `0.3786` | `0.3018` | `0.2631` | `0.4372` | `0.4936` | `0.4637` |
+| **`unet_baseline`** | `128×128` | Val-selected `t*` | `0.40` | `0.4717` | `0.3873` | `0.3086` | `0.2703` | `0.4121` | `0.5515` | `0.4717` |
+| **`exp2_train_improvements`** | `256×256` | Fixed `0.50` | `0.50` | `0.5150` | `0.4158` | `0.3468` | `0.2889` | **`0.5216`** | `0.5085` | `0.5150` |
+| **`exp2_train_improvements`** | `256×256` | Val-selected `t*` | `0.30` | **`0.5331`** | **`0.4324`** | **`0.3634`** | **`0.3037`** | `0.4743` | `0.6084` | **`0.5331`** |
+| **`exp3b_modest_weight`** | `256×256` | Fixed `0.50` | `0.50` | `0.5256` | `0.4034` | `0.3565` | `0.2847` | `0.4519` | `0.6280` | `0.5256` |
+| **`exp3b_modest_weight`** | `256×256` | Val-selected `t*` | `0.40` | `0.5249` | `0.4093` | `0.3559` | `0.2886` | `0.4351` | **`0.6614`** | `0.5249` |
+
+- **Selected Primary Checkpoint:** `artifacts/unet_experiments/exp2_train_improvements/best_model.pth` (achieves the highest held-out test Global Dice **`0.5331`**, Macro Dice **`0.4324`**, Global IoU **`0.3634`**, and Macro IoU **`0.3037`** at its validation-selected threshold `t* = 0.30`, and the highest Precision **`0.5216`** and Macro Dice **`0.4158`** at fixed threshold `t = 0.50`).
+
+---
+
+## 7. Remaining Limitations
 
 1. **Scratch compact encoder capacity:** The 4-level U-Net (`base_channels=16`, ~1.94M parameters) is trained from scratch on only 402 training images. It still struggles to distinguish some complex surface stains, shadows, and rough aggregate textures from structural footpath damage.
 2. **Resolution ceiling (`256 × 256` vs `6000 × 4000`):** While `256 × 256` resolves major cracks far better than `128 × 128`, hairline cracks (`< 10px` wide at `6000 × 4000`) remain near 1 pixel wide at `256 × 256`.

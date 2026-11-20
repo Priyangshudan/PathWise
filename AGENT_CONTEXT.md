@@ -149,6 +149,18 @@ All Phase 1 experiments used `256 × 256` input resolution (bilinear image resiz
 | **`exp3a_dice_focused`** | `batch=4`, `18` ep (Best: Ep `15`) | H-flip (`0.5`), Rot (`±10°`), `ReduceLROnPlateau` (`0.5×`, pat=2) | `0.20 BCE + 0.80 batch Dice` | `0.4737` | `0.3103` | `0.4337` / `0.5217` | `0.30` | `0.4796` | `0.3155` | `1456.7s` (`80.4s/ep`) |
 | **`exp3b_modest_weight`** | `batch=4`, `18` ep (Best: Ep `14`) | H-flip (`0.5`), Rot (`±10°`), `ReduceLROnPlateau` (`0.5×`, pat=2) | `0.35 BCE + 0.65 batch Dice` | **`0.4845`** | **`0.3197`** | `0.4072` / **`0.5980`** | `0.40` | `0.4866` | `0.3215` | `1324.3s` (`73.1s/ep`) |
 
+### Milestone 2.6 Held-Out Test Split Evaluation (`artifacts/final_evaluation/`)
+Evaluated on the **`82` included test samples** from `cv/data/experiment_manifest.csv` (`cv/evaluation/evaluate_final.py`):
+
+| Checkpoint | Input Size | Threshold Mode (`t`) | Test Global/Micro Dice | Test Macro Dice | Test Global/Micro IoU | Test Macro IoU | Test Precision | Test Recall | Test F1 |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| **`unet_baseline`** | `128×128` | Fixed (`0.50`) | `0.4637` | `0.3786` | `0.3018` | `0.2631` | `0.4372` | `0.4936` | `0.4637` |
+| **`unet_baseline`** | `128×128` | Val-selected (`0.40`) | `0.4717` | `0.3873` | `0.3086` | `0.2703` | `0.4121` | `0.5515` | `0.4717` |
+| **`exp2_train_improvements`** | `256×256` | Fixed (`0.50`) | `0.5150` | `0.4158` | `0.3468` | `0.2889` | **`0.5216`** | `0.5085` | `0.5150` |
+| **`exp2_train_improvements`** | `256×256` | Val-selected (`0.30`) | **`0.5331`** | **`0.4324`** | **`0.3634`** | **`0.3037`** | `0.4743` | `0.6084` | **`0.5331`** |
+| **`exp3b_modest_weight`** | `256×256` | Fixed (`0.50`) | `0.5256` | `0.4034` | `0.3565` | `0.2847` | `0.4519` | `0.6280` | `0.5256` |
+| **`exp3b_modest_weight`** | `256×256` | Val-selected (`0.40`) | `0.5249` | `0.4093` | `0.3559` | `0.2886` | `0.4351` | **`0.6614`** | `0.5249` |
+
 ---
 
 ## 6. Current development status
@@ -158,24 +170,64 @@ All Phase 1 experiments used `256 × 256` input resolution (bilinear image resiz
   2. Milestone 2: Duplicate-image leak verification, mask/orientation verification, and derived benchmark manifest (`cv/data/experiment_manifest.csv`, `docs/DATA_INTEGRITY_REPORT.md`).
   3. Milestone 3: Compact CPU U-Net implementation, unit tests, and 15-epoch baseline training (`artifacts/unet_baseline/`, `docs/UNET_BASELINE.md`, `docs/EXPERIMENT_LOG.md`).
   4. Milestone 4 (Model Improvement Phase 1): Persistent agent context (`AGENT_CONTEXT.md`), baseline diagnosis (`docs/BASELINE_DIAGNOSIS.md`), on-disk resized dataset caching (`artifacts/dataset_cache/`), live Markdown experiment progress tracker (`artifacts/unet_experiments/EXPERIMENT_PROGRESS.md`), and Controlled Experiments 1–4 (`docs/MODEL_EXPERIMENTS.md`).
-- **Active milestone:** Model Improvement Phase 1 complete — awaiting user review and approval before next phase (e.g., held-out test split evaluation or inference/API integration).
+  5. Milestone 2.6: Final held-out test split evaluation and checkpoint selection (`cv/evaluation/evaluate_final.py`, `artifacts/final_evaluation/`).
+- **Active milestone:** Milestone 2.6 complete — awaiting user direction for the next project phase (inference module / FastAPI service / obstacle detection / video pipeline).
 - **Pending tasks:**
-  - Upon user approval, evaluate the selected best checkpoint (`exp2_train_improvements` or `exp3b_modest_weight`) and the original baseline on the held-out test split (`82` included test samples).
-  - Subsequent project milestones: inference script/API (`cv/inference/`, FastAPI), obstacle object detection, video frame processing, and Android application integration.
+  - Implement inference utility module (`cv/inference/`) wrapping the selected U-Net checkpoint (`exp2_train_improvements/best_model.pth`).
+  - Subsequent project milestones: local FastAPI inference endpoint, pedestrian obstacle object detection, video frame processing with OpenCV, and Android application integration.
 - **Known issues:**
-  - The compact scratch U-Net (`base_channels=16`) still has a modest ceiling (`~0.489` validation Dice) due to small training sample size (`402` images), lack of pretrained encoder features, and mixed polygon-vs-crack annotation styles in the source dataset.
+  - The compact scratch U-Net (`base_channels=16`) still has a modest ceiling (`0.5331` test Global Dice / `0.4324` test Macro Dice) due to small training sample size (`402` images), lack of pretrained encoder features, and mixed polygon-vs-crack annotation styles in the source dataset.
   - Hairline cracks (`< 10px` at `6000 × 4000`) remain ~1px wide at `256 × 256`.
-- **Current best model:**
-  - **Best at fixed `0.50` threshold:** `artifacts/unet_experiments/exp3b_modest_weight/best_model.pth` (Epoch 14: Validation Dice **`0.4845`**, IoU **`0.3197`** at `t=0.50`; Dice **`0.4866`**, IoU **`0.3215`** at `t*=0.40`).
-  - **Best overall with validation-selected threshold (`t*=0.30`) & highest precision:** `artifacts/unet_experiments/exp2_train_improvements/best_model.pth` (Epoch 17: Validation Dice **`0.4888`**, IoU **`0.3235`** at `t*=0.30`; Dice **`0.4775`**, IoU **`0.3137`**, Precision **`0.4578`** at `t=0.50`).
+- **Current recommended best model:**
+  - **Primary recommended checkpoint:** `artifacts/unet_experiments/exp2_train_improvements/best_model.pth` (Epoch 17, `256 × 256` input).
+    - At validation-selected threshold **`t* = 0.30`**: achieves the highest overall held-out test performance (**Test Global/Micro Dice `0.5331`**, **Test Macro Dice `0.4324`**, **Test Global/Micro IoU `0.3634`**, **Test Macro IoU `0.3037`**, Precision `0.4743`, Recall `0.6084`).
+    - At fixed threshold **`t = 0.50`**: achieves the highest test Precision (**`0.5216`**) and highest fixed-threshold Macro Dice (**`0.4158`**), with Global/Micro Dice **`0.5150`** and Global/Micro IoU **`0.3468`**.
+  - **Secondary high-sensitivity checkpoint (fixed `t = 0.50`):** `artifacts/unet_experiments/exp3b_modest_weight/best_model.pth` (Epoch 14, `256 × 256` input; Test Global/Micro Dice **`0.5256`**, Global/Micro IoU **`0.3565`**, Macro Dice `0.4034`, Recall **`0.6280`** at `t = 0.50`).
 - **Latest validation metrics:**
   - `exp2_train_improvements` (Epoch 17): Fixed `t=0.50` -> Dice `0.4775`, IoU `0.3137`, Precision `0.4578`, Recall `0.4991`; Tuned `t*=0.30` -> Dice **`0.4888`**, IoU **`0.3235`**, Precision `0.4184`, Recall `0.5877`.
   - `exp3b_modest_weight` (Epoch 14): Fixed `t=0.50` -> Dice **`0.4845`**, IoU **`0.3197`**, Precision `0.4072`, Recall `0.5980`; Tuned `t*=0.40` -> Dice `0.4866`, IoU `0.3215`, Precision `0.3943`, Recall `0.6352`.
-- **Latest test metrics:** Not yet evaluated (`test_metrics.json` not generated; test split kept strictly held out during Phase 1 tuning).
+- **Latest test metrics (`82` included test samples):**
+  - `unet_baseline` (`128×128`, Ep 8): Fixed `t=0.50` -> Global Dice `0.4637`, Macro Dice `0.3786`, Global IoU `0.3018`, Macro IoU `0.2631`, Precision `0.4372`, Recall `0.4936`; Val-selected `t*=0.40` -> Global Dice `0.4717`, Macro Dice `0.3873`, Global IoU `0.3086`, Macro IoU `0.2703`.
+  - `exp2_train_improvements` (`256×256`, Ep 17): Fixed `t=0.50` -> Global Dice `0.5150`, Macro Dice **`0.4158`**, Global IoU `0.3468`, Macro IoU **`0.2889`**, Precision **`0.5216`**, Recall `0.5085`; Val-selected `t*=0.30` -> Global Dice **`0.5331`**, Macro Dice **`0.4324`**, Global IoU **`0.3634`**, Macro IoU **`0.3037`**, Precision `0.4743`, Recall `0.6084`.
+  - `exp3b_modest_weight` (`256×256`, Ep 14): Fixed `t=0.50` -> Global Dice **`0.5256`**, Macro Dice `0.4034`, Global IoU **`0.3565`**, Macro IoU `0.2847`, Precision `0.4519`, Recall **`0.6280`**; Val-selected `t*=0.40` -> Global Dice `0.5249`, Macro Dice `0.4093`, Global IoU `0.3559`, Macro IoU `0.2886`, Precision `0.4351`, Recall **`0.6614`**.
 
 ---
 
 ## 7. Agent activity log
+
+### 2026-11-20 — Antigravity — Milestone 2.6: Final Held-Out Evaluation and Checkpoint Selection
+- **Date:** 2026-11-20
+- **Agent name:** Antigravity
+- **Task/prompt title:** PathWise — Milestone 2.6: Final Held-Out Evaluation and Checkpoint Selection
+- **Objective:** Evaluate the original baseline (`unet_baseline`) and the two strongest Phase 1 checkpoints (`exp2_train_improvements` and `exp3b_modest_weight`) on the 82 included held-out test samples at both fixed threshold `0.50` and their pre-existing validation-selected thresholds (`t*`), compute global/micro and per-image macro metrics, generate deterministic visual comparisons, and select the final recommended checkpoint.
+- **Files created:**
+  - `cv/evaluation/evaluate_final.py`
+  - `artifacts/final_evaluation/checkpoint_comparison.json`
+  - `artifacts/final_evaluation/checkpoint_comparison.csv`
+  - `artifacts/final_evaluation/per_image_metrics.csv`
+  - `artifacts/final_evaluation/prediction_comparison.png`
+  - `artifacts/final_evaluation/FINAL_EVALUATION.md`
+- **Files modified:**
+  - `cv/evaluation/metrics.py` (added `macro_dice_coefficient` and `macro_intersection_over_union` with explicit empty-mask semantics)
+  - `cv/tests/test_unet.py` (added `test_macro_dice_and_macro_iou_differ_from_micro_and_handle_empty_masks`)
+  - `docs/MODEL_EXPERIMENTS.md` (added Section 6 summarizing held-out test evaluation results)
+  - `AGENT_CONTEXT.md` (updated Section 3, Section 5, Section 6, and Section 7 activity log)
+- **Important implementation decisions:**
+  - Implemented `macro_dice_coefficient` and `macro_intersection_over_union` by evaluating each image independently and averaging across the 82 test images; explicitly documented empty-mask handling (both empty = `1.0`; one empty = `0.0`).
+  - Selected 6 deterministic, evenly spaced test sample indices `[0, 16, 32, 48, 64, 80]` (`image_id`s `1052`, `2012`, `3054`, `5018`, `6066`, `7060`) for `prediction_comparison.png` without inspecting or sorting by test scores.
+  - Selected `artifacts/unet_experiments/exp2_train_improvements/best_model.pth` as the primary recommended checkpoint because it leads across all global and macro overlap metrics at its validation-selected threshold (`t* = 0.30`: Global Dice `0.5331`, Macro Dice `0.4324`, Global IoU `0.3634`, Macro IoU `0.3037`) and leads in Precision (`0.5216`) and Macro Dice (`0.4158`) at fixed `t = 0.50`.
+- **Commands executed:**
+  - `.\.venv\Scripts\python.exe -m unittest discover -s cv\tests -v`
+  - `.\.venv\Scripts\python.exe cv\evaluation\evaluate_final.py`
+- **Tests executed and results:** 18 unit tests in `cv/tests` (`test_dataset.py` and `test_unet.py`); all 18 passed in `0.992s` (`OK`).
+- **Experiments conducted:** Held-out test evaluation across `unet_baseline/best_model.pth`, `exp2_train_improvements/best_model.pth`, and `exp3b_modest_weight/best_model.pth` (no training conducted).
+- **Metrics obtained (Held-out Test Split, `n = 82`):**
+  - `unet_baseline` (`128×128`): `t=0.50` -> Global Dice `0.4637`, Macro Dice `0.3786`, Global IoU `0.3018`, Macro IoU `0.2631`, Precision `0.4372`, Recall `0.4936`, F1 `0.4637`; `t*=0.40` -> Global Dice `0.4717`, Macro Dice `0.3873`, Global IoU `0.3086`, Macro IoU `0.2703`, Precision `0.4121`, Recall `0.5515`, F1 `0.4717`.
+  - `exp2_train_improvements` (`256×256`): `t=0.50` -> Global Dice `0.5150`, Macro Dice **`0.4158`**, Global IoU `0.3468`, Macro IoU **`0.2889`**, Precision **`0.5216`**, Recall `0.5085`, F1 `0.5150`; `t*=0.30` -> Global Dice **`0.5331`**, Macro Dice **`0.4324`**, Global IoU **`0.3634`**, Macro IoU **`0.3037`**, Precision `0.4743`, Recall `0.6084`, F1 **`0.5331`**.
+  - `exp3b_modest_weight` (`256×256`): `t=0.50` -> Global Dice **`0.5256`**, Macro Dice `0.4034`, Global IoU **`0.3565`**, Macro IoU `0.2847`, Precision `0.4519`, Recall **`0.6280`**, F1 **`0.5256`**; `t*=0.40` -> Global Dice `0.5249`, Macro Dice `0.4093`, Global IoU `0.3559`, Macro IoU `0.2886`, Precision `0.4351`, Recall **`0.6614`**, F1 `0.5249`.
+- **Known issues:** Scratch U-Net encoder capacity and dataset annotation heterogeneity remain the primary accuracy bottlenecks.
+- **Git status:** Modified tracked files: `cv/evaluation/metrics.py`, `cv/tests/test_unet.py`; untracked files: `cv/evaluation/evaluate_final.py`, `AGENT_CONTEXT.md`, `docs/BASELINE_DIAGNOSIS.md`, `docs/MODEL_EXPERIMENTS.md`. No commits or pushes performed.
+- **Next recommended task:** Implement inference pipeline / standalone prediction module (`cv/inference/`) using the selected checkpoint `artifacts/unet_experiments/exp2_train_improvements/best_model.pth`.
 
 ### 2026-11-20 — Antigravity — Model Improvement Phase 1 (Parts C, D, E, F: Caching, Controlled Experiments 1–4 & Documentation)
 - **Date:** 2026-11-20
