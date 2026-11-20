@@ -1,0 +1,25 @@
+# Datasets
+Datasets/
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Model checkpoints and experiment outputs
+*.pth
+*.pt
+*.onnx
+artifacts/
+runs/
+outputs/
+
+# Local configuration
+.env
+*.local
+
+# Generated dataset audit outputs (keep source documentation and scripts tracked)
+artifacts/dataset_audit/*.json
+artifacts/dataset_audit/*.png
