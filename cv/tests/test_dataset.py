@@ -150,6 +150,35 @@ class FootpathDamageDatasetTests(unittest.TestCase):
         self.assertEqual(tuple(zipped_image.shape), (3, 8, 12))
         self.assertTrue(set(zipped_mask.unique().tolist()).issubset({0, 1}))
 
+    def test_disk_cache_and_rotation_preserve_binary_masks(self):
+        cache_dir = self.root / "cache"
+        ds_uncached = FootpathDamageDataset(self.root, "train", size=(8, 12))
+        ds_cached = FootpathDamageDataset(self.root, "train", size=(8, 12), cache_dir=cache_dir)
+        img0, msk0 = ds_uncached[0]
+        img1, msk1 = ds_cached[0]
+        np.testing.assert_allclose(img0.numpy(), img1.numpy(), atol=1e-6)
+        np.testing.assert_array_equal(msk0.numpy(), msk1.numpy())
+        # Second read hits cache
+        img2, msk2 = ds_cached[0]
+        np.testing.assert_allclose(img1.numpy(), img2.numpy(), atol=1e-6)
+        np.testing.assert_array_equal(msk1.numpy(), msk2.numpy())
+        # Rotation and vertical flip preserve shape and binary mask semantics
+        ds_aug = FootpathDamageDataset(
+            self.root,
+            "train",
+            size=(8, 12),
+            cache_dir=cache_dir,
+            horizontal_flip=True,
+            vertical_flip=True,
+            max_rotation_degrees=10.0,
+        )
+        aug_img, aug_msk = ds_aug[0]
+        self.assertEqual(tuple(aug_img.shape), (3, 8, 12))
+        self.assertEqual(tuple(aug_msk.shape), (8, 12))
+        self.assertTrue(set(aug_msk.unique().tolist()).issubset({0, 1}))
+        with self.assertRaises(ValueError):
+            FootpathDamageDataset(self.root, "train", max_rotation_degrees=-5.0)
+
 
 if __name__ == "__main__":
     unittest.main()

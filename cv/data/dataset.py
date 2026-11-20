@@ -14,7 +14,7 @@ from torch.utils.data import Dataset
 
 
 class FootpathDamageDataset(Dataset):
-    """Read image/mask pairs in an official split, without caching the dataset.
+    """Read image/mask pairs in an official split, with optional on-disk caching.
 
     Expected layout (the archive's verified layout): ``<root>/<split>/<id>.jpg``
     and ``<root>/<split>/<id>.png``. For a ZIP source, the same paths may be
@@ -22,10 +22,23 @@ class FootpathDamageDataset(Dataset):
     The observed near-black/near-white mask values are thresholded into
     background/damage labels. Nine paired masks have transposed dimensions; the
     audit visually verified that rotating those masks 90 degrees counterclockwise
-    aligns them. A synchronized horizontal flip is optional.
+    aligns them. A synchronized horizontal flip, vertical flip, and small-angle
+    rotation are optional.
     """
 
-    def __init__(self, root: str | Path, split: str, *, horizontal_flip: bool = False, size: tuple[int, int] | None = None, mask_threshold: int = 128, manifest: str | Path | None = None):
+    def __init__(
+        self,
+        root: str | Path,
+        split: str,
+        *,
+        horizontal_flip: bool = False,
+        vertical_flip: bool = False,
+        max_rotation_degrees: float = 0.0,
+        size: tuple[int, int] | None = None,
+        mask_threshold: int = 128,
+        manifest: str | Path | None = None,
+        cache_dir: str | Path | None = None,
+    ):
         self._zip = None
         self.root = Path(root)
         self.split = {"val": "validation"}.get(split.lower(), split.lower())
@@ -34,7 +47,12 @@ class FootpathDamageDataset(Dataset):
             raise ValueError(f"Unknown split {split!r}; expected train, val, or test")
         self.split_dir = split_map[self.split]
         self.horizontal_flip = horizontal_flip
+        self.vertical_flip = vertical_flip
+        if max_rotation_degrees < 0.0:
+            raise ValueError("max_rotation_degrees must be non-negative")
+        self.max_rotation_degrees = float(max_rotation_degrees)
         self.size = size  # (height, width); None preserves original dimensions
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else None
         if not 10 <= mask_threshold <= 247:
             raise ValueError("mask_threshold must lie in the observed gap from 10 through 247")
         self.mask_threshold = mask_threshold
@@ -120,8 +138,20 @@ class FootpathDamageDataset(Dataset):
             return Image.open(self._zip.open(ref))
         return Image.open(ref)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        image_ref, mask_ref = self.pairs[index]
+    def _cache_paths(self, image_ref: Path | str) -> tuple[Path, Path] | None:
+        if self.cache_dir is None or self.size is None:
+            return None
+        height, width = self.size
+        stem = PurePosixPath(str(image_ref).replace("\\", "/")).stem
+        folder = self.cache_dir / f"{height}x{width}_t{self.mask_threshold}" / self.split_dir
+        return folder / f"{stem}_img.png", folder / f"{stem}_mask.png"
+
+    def _load_resized_pair(self, image_ref: Path | str, mask_ref: Path | str) -> tuple[Image.Image, Image.Image]:
+        cached = self._cache_paths(image_ref)
+        if cached is not None and cached[0].is_file() and cached[1].is_file():
+            with Image.open(cached[0]) as cim, Image.open(cached[1]) as cmk:
+                return cim.convert("RGB"), cmk.convert("L")
+
         with self._open(image_ref) as im, self._open(mask_ref) as mk:
             im = im.convert("RGB")
             if mk.mode != "L":
@@ -135,14 +165,36 @@ class FootpathDamageDataset(Dataset):
                 height, width = self.size
                 im = im.resize((width, height), Image.Resampling.BILINEAR)
                 mk = mk.resize((width, height), Image.Resampling.NEAREST)
-            image = np.asarray(im, dtype=np.float32) / 255.0
-            raw_mask = np.asarray(mk)
+            else:
+                im = im.copy()
+                mk = mk.copy()
+
+        raw_mask = np.asarray(mk)
         if not np.all(np.isin(raw_mask, np.r_[0:10, 247:256])):
             raise ValueError(f"Mask contains pixel values outside the audited encoding: {mask_ref}")
+
+        if cached is not None:
+            cached[0].parent.mkdir(parents=True, exist_ok=True)
+            im.save(cached[0], format="PNG", compress_level=1)
+            mk.save(cached[1], format="PNG", compress_level=1)
+        return im, mk
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        image_ref, mask_ref = self.pairs[index]
+        im, mk = self._load_resized_pair(image_ref, mask_ref)
+        if self.max_rotation_degrees > 0.0:
+            angle = random.uniform(-self.max_rotation_degrees, self.max_rotation_degrees)
+            im = im.rotate(angle, resample=Image.Resampling.BILINEAR, fillcolor=(0, 0, 0))
+            mk = mk.rotate(angle, resample=Image.Resampling.NEAREST, fillcolor=0)
+        image = np.asarray(im, dtype=np.float32) / 255.0
+        raw_mask = np.asarray(mk)
         labels = (raw_mask >= self.mask_threshold).astype(np.uint8)
         if self.horizontal_flip and random.random() < 0.5:
             image = np.flip(image, axis=1).copy()
             labels = np.flip(labels, axis=1).copy()
+        if self.vertical_flip and random.random() < 0.5:
+            image = np.flip(image, axis=0).copy()
+            labels = np.flip(labels, axis=0).copy()
         image_tensor = torch.from_numpy(image.transpose(2, 0, 1).copy()).float()
         mask_tensor = torch.from_numpy(labels.copy()).long()
         return image_tensor, mask_tensor

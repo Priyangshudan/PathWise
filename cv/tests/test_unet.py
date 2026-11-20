@@ -16,7 +16,11 @@ from cv.evaluation.metrics import (  # noqa: E402
     recall,
 )
 from cv.models.unet import UNet  # noqa: E402
-from cv.training.train_unet import combined_segmentation_loss, dice_loss  # noqa: E402
+from cv.training.train_unet import (  # noqa: E402
+    combined_segmentation_loss,
+    dice_loss,
+    sweep_validation_thresholds,
+)
 
 
 class UNetTests(unittest.TestCase):
@@ -65,6 +69,23 @@ class UNetTests(unittest.TestCase):
         self.assertAlmostEqual(recall(probabilities, targets), 0.5)
         self.assertAlmostEqual(f1_score(probabilities, targets), 0.5)
         self.assertEqual(dice_coefficient(probabilities, targets, threshold=0.95), 0.0)
+
+    def test_weighted_losses_and_threshold_sweep(self):
+        logits = torch.tensor([[[[2.0, -2.0], [1.5, -1.5]]]], requires_grad=True)
+        targets = torch.tensor([[[[1.0, 0.0], [1.0, 0.0]]]])
+        loss_dice_only = combined_segmentation_loss(logits, targets, bce_weight=0.0, dice_weight=1.0, batch_dice=True)
+        self.assertTrue(torch.isfinite(loss_dice_only))
+        loss_dice_only.backward()
+        self.assertIsNotNone(logits.grad)
+        with self.assertRaises(ValueError):
+            combined_segmentation_loss(logits, targets, bce_weight=0.0, dice_weight=0.0)
+
+        probs = torch.tensor([[[[0.85, 0.42, 0.10, 0.05]]]])
+        gt = torch.tensor([[[[1, 1, 0, 0]]]])
+        sweep = sweep_validation_thresholds(probs, gt, thresholds=(0.35, 0.50, 0.70))
+        self.assertEqual(sweep["selected_threshold"], 0.35)
+        self.assertAlmostEqual(sweep["selected_metrics"]["dice"], 1.0)
+        self.assertLess(sweep["fixed_0.5_metrics"]["dice"], 1.0)
 
 
 if __name__ == "__main__":
