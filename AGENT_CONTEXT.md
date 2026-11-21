@@ -10,10 +10,10 @@ This document serves as the persistent technical handover and operational source
 - **Objective:** Identify and map pedestrian footpath damage (cracks, broken/uneven pavement, surface potholes/spalling) and physical obstructions (parked vehicles, poles, bins, barriers) from photographs and video recordings so users can review AI observations, correct predictions, and save geo-tagged infrastructure reports.
 - **Intended Android application:** Mobile client allowing users to capture or select images/video, review segmentation/detection overlays, edit observations, store reports locally, and browse mapped accessibility hazards.
 - **Computer vision components:**
-  1. **Binary semantic segmentation** of footpath surface damage (currently implemented via a compact PyTorch U-Net).
-  2. **Object detection** for physical pedestrian obstacles (planned future milestone).
-  3. **Image and video processing** pipeline connecting mobile recordings to inference models (planned future milestone).
-- **Current development stage:** Milestone 1 (repository setup & dataset audit), Milestone 2 (dataset integrity verification & quarantine manifest), and Milestone 3 (initial CPU U-Net baseline training) are complete. The project is currently in **Model Improvement Phase 1** (baseline diagnosis and controlled U-Net improvements).
+  1. **Binary semantic segmentation** of footpath surface damage (implemented via a compact PyTorch U-Net).
+  2. **Offline video processing and segmentation pipeline** connecting video recordings to time-sampled U-Net inference and annotated video/CSV/JSON outputs (implemented via OpenCV + PyTorch in `cv/video/`).
+  3. **Object detection** for physical pedestrian obstacles (planned future milestone).
+- **Current development stage:** Milestone 1 (repository setup & dataset audit), Milestone 2 (dataset integrity verification & quarantine manifest), Milestone 2.5 / Phase 1 (U-Net baseline & controlled improvements), Milestone 2.6 (final held-out test evaluation & checkpoint selection), and **Milestone 3 (offline video processing & segmentation pipeline)** are complete.
 
 ---
 
@@ -21,9 +21,9 @@ This document serves as the persistent technical handover and operational source
 
 | Component | Status | Details |
 |---|---|---|
-| **PyTorch (`cv/`)** | **Implemented** | Dataset loader (`cv/data/dataset.py`), compact 4-level U-Net (`cv/models/unet.py`), binary segmentation metrics (`cv/evaluation/metrics.py`), training & evaluation CLI (`cv/training/train_unet.py`), dataset audit script (`cv/scripts/audit_dataset.py`), and unit tests (`cv/tests/`). |
+| **PyTorch (`cv/`)** | **Implemented** | Dataset loader (`cv/data/dataset.py`), compact 4-level U-Net (`cv/models/unet.py`), binary segmentation metrics (`cv/evaluation/metrics.py`), held-out evaluator (`cv/evaluation/evaluate_final.py`), training CLI (`cv/training/train_unet.py`), dataset audit script (`cv/scripts/audit_dataset.py`), and unit tests (`cv/tests/`). |
+| **OpenCV (`cv/video/`)** | **Implemented** | Sequential video reader (`cv/video/video_reader.py`), time-based frame sampler & perceptual dHash consecutive near-duplicate suppressor (`cv/video/frame_sampler.py`), single-load U-Net video frame segmenter & HUD overlay renderer (`cv/video/video_inference.py`), CLI pipeline (`cv/video/process_video.py`), and synthetic video tests (`cv/tests/test_video.py`). |
 | **Android application (`android/`)** | **Planned** | Placeholder directory (`android/.gitkeep`) only. No Android app code implemented yet. |
-| **OpenCV** | **Planned** | Planned for image and video frame processing; not yet installed in `requirements.txt` or implemented. |
 | **FastAPI** | **Planned** | Planned local inference API to serve computer-vision predictions; not yet implemented. |
 | **Room / SQLite** | **Planned** | Planned local persistence on Android for saving geo-tagged footpath reports; not yet implemented. |
 | **MapLibre** | **Planned** | Planned map interface for visualizing footpath damage and obstruction reports; not yet implemented. |
@@ -38,6 +38,7 @@ This document serves as the persistent technical handover and operational source
 - **Installed core packages (`requirements.txt`):**
   - `torch==2.15.0+cpu` (installed from `https://download.pytorch.org/whl/cpu`)
   - `numpy>=2.1` (`2.5.5` installed)
+  - `opencv-python>=4.10` (`5.1.0.95` installed)
   - `Pillow>=11.0` (`13.0.0` installed)
 - **Compute hardware:** CPU-only execution, 16 GB system RAM, no NVIDIA GPU / no CUDA packages.
 - **Repository structure:**
@@ -54,6 +55,7 @@ This document serves as the persistent technical handover and operational source
   │   └── Footpath Damage severity levels_annotations.csv
   ├── artifacts/                     # Audit reports, model checkpoints, plots (ignored by Git)
   │   ├── dataset_audit/             # Audit JSON report and sample overlays
+  │   ├── final_evaluation/          # Milestone 2.6 held-out test comparison & visuals
   │   ├── unet_baseline/             # Original 128x128 U-Net baseline checkpoint & logs
   │   └── unet_experiments/          # Controlled U-Net improvement experiments
   ├── cv/                            # Computer vision Python package
@@ -62,7 +64,8 @@ This document serves as the persistent technical handover and operational source
   │   │   ├── dataset.py             # FootpathDamageDataset (ZIP/folder + manifest support)
   │   │   └── experiment_manifest.csv# Derived benchmark manifest excluding 18 duplicate rows
   │   ├── evaluation/
-  │   │   └── metrics.py             # Global binary Dice, IoU, precision, recall, F1
+  │   │   ├── evaluate_final.py      # Held-out test evaluation & comparison generator
+  │   │   └── metrics.py             # Global micro & per-image macro Dice, IoU, precision, recall, F1
   │   ├── inference/                 # Placeholder for inference utilities (.gitkeep)
   │   ├── models/
   │   │   └── unet.py                # 4-level U-Net (ConvBlock + MaxPool + ConvTranspose2d)
@@ -70,9 +73,16 @@ This document serves as the persistent technical handover and operational source
   │   │   └── audit_dataset.py       # Non-destructive ZIP dataset auditing script
   │   ├── tests/
   │   │   ├── test_dataset.py        # Dataset pairing, rotation, threshold, manifest tests
-  │   │   └── test_unet.py           # U-Net forward shape, loss backprop, metric tests
-  │   └── training/
-  │       └── train_unet.py          # Training loop, plotting, sample sheet, checkpoint eval
+  │   │   ├── test_unet.py           # U-Net forward shape, loss backprop, metric tests
+  │   │   └── test_video.py          # Synthetic video ingestion, sampling, duplicate & CLI tests
+  │   ├── training/
+  │   │   └── train_unet.py          # Training loop, plotting, sample sheet, checkpoint eval
+  │   └── video/                     # Milestone 3 offline video segmentation pipeline
+  │       ├── __init__.py
+  │       ├── frame_sampler.py       # Time-based frame sampler & 64-bit dHash duplicate suppression
+  │       ├── process_video.py       # CLI entrypoint, VideoWriter orchestration, CSV/JSON writer
+  │       ├── video_inference.py     # Single-load U-Net frame predictor & translucent HUD renderer
+  │       └── video_reader.py        # Sequential OpenCV VideoCapture context manager
   └── docs/                          # Project documentation
       ├── ARCHITECTURE.md
       ├── BASELINE_DIAGNOSIS.md
@@ -82,7 +92,8 @@ This document serves as the persistent technical handover and operational source
       ├── EXPERIMENT_LOG.md
       ├── MODEL_EXPERIMENTS.md
       ├── Pathwise_learning_concepts.md
-      └── UNET_BASELINE.md
+      ├── UNET_BASELINE.md
+      └── VIDEO_PIPELINE.md
   ```
 
 ---
@@ -171,13 +182,15 @@ Evaluated on the **`82` included test samples** from `cv/data/experiment_manifes
   3. Milestone 3: Compact CPU U-Net implementation, unit tests, and 15-epoch baseline training (`artifacts/unet_baseline/`, `docs/UNET_BASELINE.md`, `docs/EXPERIMENT_LOG.md`).
   4. Milestone 4 (Model Improvement Phase 1): Persistent agent context (`AGENT_CONTEXT.md`), baseline diagnosis (`docs/BASELINE_DIAGNOSIS.md`), on-disk resized dataset caching (`artifacts/dataset_cache/`), live Markdown experiment progress tracker (`artifacts/unet_experiments/EXPERIMENT_PROGRESS.md`), and Controlled Experiments 1–4 (`docs/MODEL_EXPERIMENTS.md`).
   5. Milestone 2.6: Final held-out test split evaluation and checkpoint selection (`cv/evaluation/evaluate_final.py`, `artifacts/final_evaluation/`).
-- **Active milestone:** Milestone 2.6 complete — awaiting user direction for the next project phase (inference module / FastAPI service / obstacle detection / video pipeline).
+  6. Milestone 3: Offline video processing and segmentation pipeline (`cv/video/`, `cv/tests/test_video.py`, `docs/VIDEO_PIPELINE.md`).
+- **Active milestone:** Milestone 3 complete — ready to run a real footpath video demonstration once a sample smartphone recording (e.g., Redmi Note 11 MP4) is provided, or proceed to the next milestone upon approval.
 - **Pending tasks:**
-  - Implement inference utility module (`cv/inference/`) wrapping the selected U-Net checkpoint (`exp2_train_improvements/best_model.pth`).
-  - Subsequent project milestones: local FastAPI inference endpoint, pedestrian obstacle object detection, video frame processing with OpenCV, and Android application integration.
+  - Run `cv.video.process_video` on a real smartphone footpath video once provided by the user to generate `artifacts/video_demo/` demonstration outputs.
+  - Subsequent project milestones: obstacle object detection, local FastAPI inference API, and Android application integration.
 - **Known issues:**
   - The compact scratch U-Net (`base_channels=16`) still has a modest ceiling (`0.5331` test Global Dice / `0.4324` test Macro Dice) due to small training sample size (`402` images), lack of pretrained encoder features, and mixed polygon-vs-crack annotation styles in the source dataset.
   - Hairline cracks (`< 10px` at `6000 × 4000`) remain ~1px wide at `256 × 256`.
+  - Video frame segmentation operates independently on each sampled timestamp (`256 × 256` bilinearly resized input, nearest-neighbour upsampled binary mask); predicted pixel percentages reflect 2D image-plane projection rather than physical real-world crack dimensions, and perceptual dHash duplicate suppression only filters consecutive stationary-camera frames rather than tracking physical defects across camera motion.
 - **Current recommended best model:**
   - **Primary recommended checkpoint:** `artifacts/unet_experiments/exp2_train_improvements/best_model.pth` (Epoch 17, `256 × 256` input).
     - At validation-selected threshold **`t* = 0.30`**: achieves the highest overall held-out test performance (**Test Global/Micro Dice `0.5331`**, **Test Macro Dice `0.4324`**, **Test Global/Micro IoU `0.3634`**, **Test Macro IoU `0.3037`**, Precision `0.4743`, Recall `0.6084`).
@@ -194,6 +207,36 @@ Evaluated on the **`82` included test samples** from `cv/data/experiment_manifes
 ---
 
 ## 7. Agent activity log
+
+### 2026-11-20 — Antigravity — Milestone 3: Video Processing and Segmentation Pipeline
+- **Date:** 2026-11-20
+- **Agent name:** Antigravity
+- **Task/prompt title:** PathWise — Milestone 3: Video Processing and Segmentation Pipeline
+- **Objective:** Build an offline CPU video-processing and footpath-damage segmentation pipeline using OpenCV and the selected U-Net checkpoint (`exp2_train_improvements/best_model.pth`, `t* = 0.30`), including sequential frame ingestion, configurable time-based frame sampling with optional consecutive near-duplicate suppression, annotated video generation, structured CSV/JSON reporting, synthetic video unit tests, and pipeline documentation.
+- **Files created:**
+  - `cv/video/__init__.py`
+  - `cv/video/video_reader.py`
+  - `cv/video/frame_sampler.py`
+  - `cv/video/video_inference.py`
+  - `cv/video/process_video.py`
+  - `cv/tests/test_video.py`
+  - `docs/VIDEO_PIPELINE.md`
+- **Files modified:**
+  - `requirements.txt` (added `opencv-python>=4.10`; installed `opencv-python==5.1.0.95` in `.venv`)
+  - `AGENT_CONTEXT.md` (updated architecture, environment, repository structure, milestone status, and activity log)
+- **Important implementation decisions:**
+  - Reproduced the exact training/validation preprocessing in `VideoSegmentationModel`: OpenCV `BGR` -> `RGB` `PIL.Image` -> `Image.Resampling.BILINEAR` resize to `(input_size, input_size)` (`256 × 256` from checkpoint metadata) -> `float32 / 255.0` in `[0, 1]`, followed by `torch.inference_mode()`, `torch.sigmoid()`, thresholding (default `0.30`), and `cv2.INTER_NEAREST` resizing back to the original video frame dimensions.
+  - Designed `VideoReader` as a context manager that streams one frame at a time without loading entire videos into memory, computes deterministic timestamps (`frame_index / fps`), falls back cleanly when container FPS/dimensions are unreliable, and always releases `cv2.VideoCapture`.
+  - Implemented `FrameSampler` with configurable time-interval sampling (`--sample-interval`, default `1.0s`) and optional 64-bit horizontal difference hash (`compute_dhash`, `--skip-similar-frames`, default Hamming threshold `4`) to suppress redundant inference on consecutive stationary-camera frames without claiming multi-frame physical defect tracking.
+  - Built codec fallback into `_open_video_writer` (`mp4v` -> `avc1` -> `XVID` -> `MJPG`) so annotated videos render reliably across Windows OpenCV builds while preserving native resolution.
+- **Commands executed:**
+  - `.\.venv\Scripts\python.exe -m pip install opencv-python`
+  - `.\.venv\Scripts\python.exe -m unittest discover -s cv\tests -v`
+- **Tests executed and results:** 22 unit tests across `test_dataset.py` (12), `test_unet.py` (6), and `test_video.py` (4); all 22 passed in `1.694s` (`OK`).
+- **Experiments / sample videos processed:** Verified end-to-end execution on synthetic MP4 test videos in `test_video.py`. Checked the repository and `artifacts/` for existing `.mp4`/`.avi`/`.mov`/`.mkv` files — none exist yet; requested a short footpath video from the user's Redmi Note 11 for the real-world demonstration run.
+- **Known limitations:** 2D image-plane pixel percentages are not physical crack dimensions; no multi-frame spatial defect tracking (SLAM/optical flow) across moving camera views; `256 × 256` square model resize compresses wide/tall video aspect ratios during the forward pass.
+- **Git status:** Modified tracked files: `AGENT_CONTEXT.md`, `requirements.txt`, `cv/evaluation/metrics.py`, `cv/tests/test_unet.py`, `docs/MODEL_EXPERIMENTS.md`; untracked files: `cv/evaluation/evaluate_final.py`, `cv/video/`, `cv/tests/test_video.py`, `docs/VIDEO_PIPELINE.md`. No commits or pushes performed.
+- **Next recommended milestone:** Run the demonstration CLI on a short real footpath video from the user's Redmi Note 11 (`artifacts/video_demo/`), then proceed to pedestrian obstacle object detection or the local FastAPI inference service.
 
 ### 2026-11-20 — Antigravity — Milestone 2.6: Final Held-Out Evaluation and Checkpoint Selection
 - **Date:** 2026-11-20
